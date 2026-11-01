@@ -4,6 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>우리 반 네컷</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#2f54eb">
+<link rel="icon" href="/icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&family=Gowun+Dodum&display=swap">
 <style>
@@ -598,6 +601,10 @@ button:focus-visible{outline:3px solid var(--sun);outline-offset:2px}
   $('wipeNo').onclick = () => { $('wipeConfirm').hidden = true; };
   $('wipeYes').onclick = async () => { await clearAll(); $('wipeConfirm').hidden = true; renderTeacher(); refreshToday(); };
 
+  // 와이파이 없이도 열리도록 (한 번 인터넷으로 열면 태블릿에 저장됨)
+  if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')){
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+  }
   // 화면 꺼짐 방지 (가능할 때만)
   async function wake(){ try{ if ('wakeLock' in navigator) await navigator.wakeLock.request('screen'); }catch(e){} }
   wake(); document.addEventListener('visibilitychange', () => { if (document.visibilityState==='visible') wake(); });
