@@ -144,9 +144,9 @@ button:focus-visible{outline:3px solid var(--sun);outline-offset:2px}
     <img class="strip" id="resultImg" alt="완성된 네컷 사진">
     <div class="card" style="display:flex;flex-direction:column;gap:14px">
       <h2>완성!</h2>
-      <p class="hint">이 사진을 태블릿에 남길까요? 저장하지 않으면 사진은 바로 사라져요.</p>
+      <p class="hint" id="resultMsg">마음에 들면 저장하고, 아니면 다시 찍어요.</p>
       <button class="btn primary" id="saveBtn">저장하기</button>
-      <button class="btn" id="closeResult">저장하지 않기</button>
+      <button class="btn" id="closeResult">다시 찍기</button>
     </div>
   </div>
 </div>
@@ -290,18 +290,44 @@ button:focus-visible{outline:3px solid var(--sun);outline-offset:2px}
   });
 
   // ---------- 카메라 ----------
+  function camAlive(){
+    if (!stream) return false;
+    const t = stream.getVideoTracks()[0];
+    return !!t && t.readyState === 'live' && !t.muted;
+  }
+  let camStarting = null;
   async function startCam(){
-    try{
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error('no gum');
-      stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:'user', width:{ideal:1280}, height:{ideal:960}}, audio:false});
-      $('video').srcObject = stream;
-      await $('video').play().catch(()=>{});
-    }catch(e){
-      fallback = true;
-      $('video').hidden = true; $('nocam').hidden = false;
+    if (camStarting) return camStarting;
+    camStarting = (async () => {
+      try{
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error('no gum');
+        if (stream){ stream.getTracks().forEach(t => t.stop()); stream = null; }
+        stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:'user', width:{ideal:1280}, height:{ideal:960}}, audio:false});
+        const t = stream.getVideoTracks()[0];
+        if (t){ t.onended = () => ensureCam(); t.onmute = () => setTimeout(() => { if (document.visibilityState === 'visible') ensureCam(); }, 800); }
+        const v = $('video'); v.srcObject = stream; v.hidden = false; $('nocam').hidden = true;
+        await v.play().catch(()=>{});
+        fallback = false;
+      }catch(e){
+        fallback = true; stream = null;
+        $('video').hidden = true; $('nocam').hidden = false;
+      }finally{ camStarting = null; }
+    })();
+    return camStarting;
+  }
+  // 미리보기가 멈췄거나 꺼졌으면 다시 켜기
+  async function ensureCam(){
+    const v = $('video');
+    if (camAlive()){
+      if (v.paused || v.readyState < 2){ await v.play().catch(()=>{}); }
+      if (v.readyState >= 2 && !v.paused) return;
     }
+    await startCam();
   }
   startCam();
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') ensureCam(); });
+  window.addEventListener('focus', () => ensureCam());
+  window.addEventListener('pageshow', () => ensureCam());
 
   // ---------- 소리 ----------
   let ac = null;
@@ -396,6 +422,7 @@ button:focus-visible{outline:3px solid var(--sun);outline-offset:2px}
     if (busy) return; busy = true; $('startBtn').disabled = true;
     shots = []; showThumbs();
     try{
+      await ensureCam();
       if (!fallback && stream){ await runLive(); }
       else{
         for (let i=0;i<4;i++){
@@ -412,8 +439,9 @@ button:focus-visible{outline:3px solid var(--sun);outline-offset:2px}
       const blob = await new Promise(r => strip.toBlob(r, 'image/jpeg', .88));
       lastBlob = blob;
       // 사용 기록은 저장 여부와 상관없이 남김 (사진은 '저장하기'를 눌러야 남음)
-      lastRec = {time: Date.now(), blob: null};
-      lastRec.id = await addStrip(null);
+      const recTime = Date.now();
+      const recId = await addStrip(null);
+      lastRec = {id: recId, time: recTime, blob: null};
       $('resultImg').src = URL.createObjectURL(blob);
       $('resultSheet').hidden = false;
       refreshToday();
@@ -427,17 +455,28 @@ button:focus-visible{outline:3px solid var(--sun);outline-offset:2px}
 
   function download(blob, t){
     const d = new Date(t || Date.now());
-    const name = '우리반네컷_'+d.getFullYear()+pad(d.getMonth()+1)+pad(d.getDate())+'_'+pad(d.getHours())+pad(d.getMinutes())+pad(d.getSeconds())+'.jpg';
+    const name = 'necut_'+d.getFullYear()+pad(d.getMonth()+1)+pad(d.getDate())+'_'+pad(d.getHours())+pad(d.getMinutes())+pad(d.getSeconds())+'.jpg';
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name;
-    document.body.appendChild(a); a.click(); a.remove();
+    document.body.appendChild(a); a.click(); setTimeout(() => { a.remove(); URL.revokeObjectURL(a.href); }, 4000);
   }
   let lastRec = null;
-  function closeResult(){ $('resultSheet').hidden = true; shots = []; showThumbs(); lastBlob = null; lastRec = null; refreshToday(); }
+  function closeResult(){
+    $('resultSheet').hidden = true; shots = []; showThumbs(); lastBlob = null; lastRec = null;
+    $('saveBtn').disabled = false; $('closeResult').disabled = false;
+    $('resultMsg').textContent = '마음에 들면 저장하고, 아니면 다시 찍어요.';
+    refreshToday(); ensureCam();
+  }
   $('saveBtn').onclick = async () => {
-    if (lastRec && lastRec.id != null && lastBlob){ lastRec.blob = lastBlob; await putStrip(lastRec); }
-    closeResult();
+    if (!lastBlob) return;
+    $('saveBtn').disabled = true; $('closeResult').disabled = true;
+    // 1) 태블릿 사진첩(다운로드 폴더)에 파일로 저장
+    download(lastBlob, lastRec && lastRec.time);
+    // 2) 선생님 화면용 기록에도 사진을 남김
+    if (lastRec && lastRec.id != null){ lastRec.blob = lastBlob; await putStrip(lastRec); }
+    $('resultMsg').textContent = '저장했어요! 갤러리의 Download 앨범에서 볼 수 있어요.';
+    setTimeout(closeResult, 1800);
   };
-  $('closeResult').onclick = closeResult;
+  $('closeResult').onclick = () => { closeResult(); setTimeout(() => startHandler(), 300); };
 
   async function todays(){
     const all = (await allStrips()) || [];
