@@ -69,9 +69,14 @@ video{width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}
 /* 결과 / 선생님 화면 (덮개) */
 .sheet{position:fixed;inset:0;background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-filter:blur(6px);z-index:20;
   overflow:auto;padding:max(16px,env(safe-area-inset-top,0px)) max(16px,env(safe-area-inset-right,0px)) max(16px,env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px))}
-.result{display:grid;grid-template-columns:auto minmax(0,1fr);gap:24px;align-items:start;max-width:980px;margin:0 auto}
+.result{display:grid;grid-template-columns:minmax(0,1fr) minmax(220px,300px);gap:20px;align-items:center;min-height:100%;margin:0 auto}
 @media (max-width:720px){.result{grid-template-columns:1fr}}
-.result canvas,.result img.strip{height:min(78vh,900px);width:auto;max-width:100%;border-radius:6px;box-shadow:0 10px 40px rgba(20,30,80,.25);justify-self:center}
+.result img.strip{display:block;width:auto;height:auto;max-width:100%;max-height:calc(100vh - 40px);max-height:calc(100dvh - 40px);
+  border-radius:6px;box-shadow:0 10px 40px rgba(20,30,80,.25);justify-self:center}
+.layouts{display:flex;gap:10px;margin-top:12px}
+.layout-opt{flex:1;border:3px solid var(--line);background:var(--panel);color:var(--ink);border-radius:12px;padding:8px;font:inherit;font-size:.95rem;cursor:pointer;display:flex;align-items:center;gap:8px;justify-content:center}
+.layout-opt[aria-pressed="true"]{border-color:var(--accent)}
+.layout-opt svg{flex:0 0 auto}
 .result h2,.teacher h2{font-family:var(--display);font-weight:400;font-size:1.8rem;margin:0 0 10px}
 .teacher{max-width:980px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
 .stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
@@ -122,8 +127,12 @@ button:focus-visible{outline:3px solid var(--sun);outline-offset:2px}
 
   <aside class="side">
     <div class="card">
-      <div class="label">틀 색깔 고르기</div>
+      <div class="label">틀 고르기</div>
       <div class="frames" id="frames"></div>
+      <div class="layouts">
+        <button class="layout-opt" data-layout="strip" aria-pressed="true"><svg width="14" height="30" viewBox="0 0 14 30" aria-hidden="true"><rect x="1" y="1" width="12" height="28" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M3 4h8v4H3zM3 10h8v4H3zM3 16h8v4H3zM3 22h8v4H3z" fill="currentColor"/></svg>세로 한 줄</button>
+        <button class="layout-opt" data-layout="grid" aria-pressed="false"><svg width="30" height="26" viewBox="0 0 30 26" aria-hidden="true"><rect x="1" y="1" width="28" height="24" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M4 4h10v7H4zM16 4h10v7H16zM4 13h10v7H4zM16 13h10v7H16z" fill="currentColor"/></svg>2×2</button>
+      </div>
     </div>
     <button class="big" id="startBtn">네컷 찍기</button>
     <div class="card">
@@ -227,6 +236,11 @@ button:focus-visible{outline:3px solid var(--sun);outline-offset:2px}
     {name:'노랑', bg:'#ffe58a', ink:'#5b4300'},
   ];
   let frame = FRAMES[0];
+  let layout = 'strip';
+  document.querySelectorAll('.layout-opt').forEach(b => b.onclick = () => {
+    layout = b.dataset.layout;
+    document.querySelectorAll('.layout-opt').forEach(x => x.setAttribute('aria-pressed', x===b ? 'true':'false'));
+  });
   const SLOT_W = 1104, SLOT_H = 828; // 4:3
   const COUNTDOWN = 5; // 한 장마다 세는 초 (바꾸고 싶으면 이 숫자만 고치면 됨)
   let shots = [];
@@ -419,15 +433,20 @@ button:focus-visible{outline:3px solid var(--sun);outline-offset:2px}
   }
 
   async function compose(){
-    const M = 48, G = 32, FOOT = 230, W = SLOT_W + M*2;
-    const H = M + SLOT_H*4 + G*3 + FOOT;
+    const M = 48, G = 32, FOOT = 230;
+    const grid = layout === 'grid';
+    const W = grid ? SLOT_W*2 + G + M*2 : SLOT_W + M*2;
+    const H = grid ? M + SLOT_H*2 + G + FOOT : M + SLOT_H*4 + G*3 + FOOT;
     const c = document.createElement('canvas'); c.width = W; c.height = H;
     const x = c.getContext('2d');
     x.fillStyle = frame.bg; x.fillRect(0,0,W,H);
-    shots.forEach((s,i) => x.drawImage(s, M, M + i*(SLOT_H+G)));
+    shots.forEach((s,i) => {
+      if (grid) x.drawImage(s, M + (i%2)*(SLOT_W+G), M + Math.floor(i/2)*(SLOT_H+G));
+      else x.drawImage(s, M, M + i*(SLOT_H+G));
+    });
     try{ await document.fonts.load('80px Jua'); }catch(e){}
     x.fillStyle = frame.ink; x.textAlign = 'center'; x.textBaseline = 'middle';
-    const footTop = M + SLOT_H*4 + G*3;
+    const footTop = grid ? M + SLOT_H*2 + G : M + SLOT_H*4 + G*3;
     x.font = '84px Jua, "Noto Sans KR", sans-serif';
     x.fillText('우리 반 네컷', W/2, footTop + FOOT*0.42);
     const d = new Date();
